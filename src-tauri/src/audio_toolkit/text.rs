@@ -397,6 +397,11 @@ fn remove_filler_matches(text: &str, pattern: &Regex) -> String {
     let mut capital_owed = false;
 
     for filler in pattern.find_iter(text) {
+        // `\b` treats a hyphen as a word boundary, so without this "uh-huh",
+        // "uh-oh" and "mm-hmm" lose half a word.
+        if text[..filler.start()].ends_with('-') || text[filler.end()..].starts_with('-') {
+            continue;
+        }
         push_restoring_capital(&mut kept, &text[resume..filler.start()], &mut capital_owed);
         let capitalized = filler.as_str().starts_with(char::is_uppercase);
         capital_owed |= capitalized && opens_sentence(&kept);
@@ -560,6 +565,23 @@ mod tests {
         let text = "Well, uhm, I think, uh. that's right";
         let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Well, I think, that's right");
+    }
+
+    #[test]
+    fn test_filter_keeps_hyphenated_interjections() {
+        for text in [
+            "Uh-huh, that's right.",
+            "Uh-oh, the build broke.",
+            "Mm-hmm. Sounds good.",
+            "She said uh-huh and left.",
+        ] {
+            assert_eq!(filter_transcription_output(text, "en", &None), text);
+        }
+        // A standalone filler next to a hyphenated word is still removed.
+        assert_eq!(
+            filter_transcription_output("Uh, the follow-up is done.", "en", &None),
+            "The follow-up is done."
+        );
     }
 
     #[test]
