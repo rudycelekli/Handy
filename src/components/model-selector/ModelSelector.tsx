@@ -115,10 +115,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
               setPendingModelId(modelId);
               setModelError(null);
               setShowModelDropdown(false);
-              const success = await selectModel(modelId);
-              if (!success) {
-                setPendingModelId(null);
-              }
+              await selectModel(modelId);
+              // On success the store's currentModel is already modelId. Don't
+              // wait for loading_completed: with "Unload model: Immediately"
+              // the backend never loads, so it would never arrive.
+              setPendingModelId(null);
             }
           } catch {
             // Ignore errors in auto-select
@@ -151,8 +152,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     setModelError(null);
     setShowModelDropdown(false);
     const success = await selectModel(modelId);
+    // On success the store's currentModel is already modelId (see above).
+    setPendingModelId(null);
     if (!success) {
-      setPendingModelId(null);
       setModelStatus("error");
       setModelError("Failed to switch model");
       onError?.("Failed to switch model");
