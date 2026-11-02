@@ -4,11 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/bindings";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import { useModelStore } from "../../stores/modelStore";
-import { LANGUAGE_DETECTOR_ID } from "../../hooks/useLanguageDetector";
-import {
-  areModelsLocked,
-  useModelsLocked,
-} from "../../stores/transcriptionJobsStore";
+import { useModelsLocked } from "../../stores/transcriptionJobsStore";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
@@ -100,33 +96,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
       },
     );
 
-    // Auto-select model when download completes
-    const downloadCompleteUnlisten = listen<string>(
-      "model-download-complete",
-      (event) => {
-        const modelId = event.payload;
-        // The language detector downloads like a model but isn't one.
-        if (modelId === LANGUAGE_DETECTOR_ID) return;
-        setTimeout(async () => {
-          try {
-            const isRecording = await commands.isRecording();
-            // A file job holds the current model until it's done.
-            if (!isRecording && !areModelsLocked()) {
-              setPendingModelId(modelId);
-              setModelError(null);
-              setShowModelDropdown(false);
-              const success = await selectModel(modelId);
-              if (!success) {
-                setPendingModelId(null);
-              }
-            }
-          } catch {
-            // Ignore errors in auto-select
-          }
-        }, 500);
-      },
-    );
-
     // Click outside to close dropdown
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -142,7 +111,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       modelStateUnlisten.then((fn) => fn());
-      downloadCompleteUnlisten.then((fn) => fn());
     };
   }, [selectModel]);
 
