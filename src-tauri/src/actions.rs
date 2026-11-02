@@ -182,6 +182,13 @@ where
     }
 }
 
+/// File name for a dictation's WAV. Millisecond resolution, so two dictations
+/// that stop within the same second don't overwrite each other's audio and
+/// end up sharing one file between two history entries.
+fn recording_file_name(now: chrono::DateTime<chrono::Utc>) -> String {
+    format!("handy-{}.wav", now.timestamp_millis())
+}
+
 fn should_use_streaming_overlay(style: OverlayStyle, is_streaming: bool) -> bool {
     style == OverlayStyle::Live && is_streaming
 }
@@ -712,7 +719,7 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     // Save WAV concurrently with transcription
                     let sample_count = samples.len();
-                    let file_name = format!("handy-{}.wav", chrono::Utc::now().timestamp());
+                    let file_name = recording_file_name(chrono::Utc::now());
                     let wav_path = hm.recordings_dir().join(&file_name);
                     let wav_path_for_verify = wav_path.clone();
                     let samples_for_wav = samples.clone();
@@ -1003,7 +1010,8 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 mod tests {
     use super::{
         complete_unless_cancelled, is_blank_transcription, non_blank_post_processed_text,
-        should_use_streaming_overlay, strip_invisible_chars, strip_think_block,
+        recording_file_name, should_use_streaming_overlay, strip_invisible_chars,
+        strip_think_block,
     };
     use crate::settings::OverlayStyle;
     use std::future;
@@ -1011,6 +1019,14 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn recordings_in_the_same_second_get_distinct_file_names() {
+        let first = chrono::DateTime::from_timestamp_millis(1_700_000_000_100).unwrap();
+        let second = chrono::DateTime::from_timestamp_millis(1_700_000_000_400).unwrap();
+        assert_ne!(recording_file_name(first), recording_file_name(second));
+        assert_eq!(recording_file_name(first), "handy-1700000000100.wav");
+    }
 
     #[test]
     fn blank_transcription_is_detected() {
