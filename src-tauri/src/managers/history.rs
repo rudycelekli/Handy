@@ -488,7 +488,7 @@ impl HistoryManager {
         // Unsaved dictations, newest first. Transcribed files are only ever
         // deleted explicitly, and don't count toward the limit.
         let mut stmt = conn.prepare(
-            "SELECT id, file_name FROM transcription_history WHERE saved = 0 AND source_name IS NULL ORDER BY timestamp DESC"
+            "SELECT id, file_name FROM transcription_history WHERE saved = 0 AND source_name IS NULL ORDER BY timestamp DESC, id DESC"
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -616,7 +616,7 @@ impl HistoryManager {
         let mut stmt = conn.prepare(&format!(
             "SELECT {ENTRY_COLUMNS}
              FROM transcription_history
-             ORDER BY timestamp DESC
+             ORDER BY timestamp DESC, id DESC
              LIMIT 1"
         ))?;
 
@@ -636,7 +636,7 @@ impl HistoryManager {
             "SELECT {ENTRY_COLUMNS}
              FROM transcription_history
              WHERE transcription_text != '' AND source_name IS NULL
-             ORDER BY timestamp DESC
+             ORDER BY timestamp DESC, id DESC
              LIMIT 1"
         ))?;
 
@@ -876,6 +876,20 @@ mod tests {
 
         assert_eq!(entry.timestamp, 100);
         assert_eq!(entry.transcription_text, "completed");
+    }
+
+    #[test]
+    fn get_latest_completed_entry_breaks_same_second_ties_by_insertion() {
+        // Timestamps are whole seconds, so two quick dictations can share one.
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "older", None);
+        insert_entry(&conn, 100, "newer", None);
+
+        let entry = HistoryManager::get_latest_completed_entry_with_conn(&conn)
+            .expect("fetch latest completed entry")
+            .expect("completed entry exists");
+
+        assert_eq!(entry.transcription_text, "newer");
     }
 
     #[test]
