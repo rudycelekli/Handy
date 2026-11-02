@@ -3,7 +3,7 @@ use crate::audio_toolkit::{
     apply_custom_words, detect_output_language, normalize_transcription_output,
     remove_filler_words, OutputLanguageEvidence,
 };
-use crate::chinese_script::{convert_chinese_script, ChineseVariety};
+use crate::chinese_script::{convert_chinese_script, variety_for_output, ChineseVariety};
 use crate::engine_supervisor::{
     CancelMark, DeviceInfo, DeviceSelector, EngineError, EngineSupervisor, LoadSpec, LoadedInfo,
     Unloading,
@@ -1628,11 +1628,10 @@ fn post_process_transcription_text(
         };
 
         // Convert the script before custom words so they match in the script
-        // the user writes in. Only output known to be Chinese is touched, so
-        // e.g. Japanese kanji are never rewritten.
-        let variety = output_language
-            .language()
-            .and_then(ChineseVariety::from_language);
+        // the user writes in. Only output known to be Chinese, or Han text in
+        // otherwise non-CJK output, is touched, so e.g. Japanese kanji are
+        // never rewritten.
+        let variety = variety_for_output(output_language.language(), &raw);
         let raw = match variety {
             Some(variety) if converts_script => {
                 convert_chinese_script(&raw, variety, settings.chinese_script)

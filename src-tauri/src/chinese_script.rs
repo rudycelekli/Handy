@@ -31,6 +31,40 @@ impl ChineseVariety {
     }
 }
 
+/// The variety to convert `text` as, given the language the output is known
+/// to be in.
+///
+/// A Chinese language picks its variety directly. Mixed Mandarin/English
+/// speech is often detected as English as a whole (#2239), so text that is
+/// known to be in another language still counts as Mandarin when it contains
+/// Han characters. Japanese and Korean are excluded, and so is any text with
+/// kana, so kanji are never rewritten.
+pub fn variety_for_output(language: Option<&str>, text: &str) -> Option<ChineseVariety> {
+    let language = language?;
+    if let Some(variety) = ChineseVariety::from_language(language) {
+        return Some(variety);
+    }
+    let base = language.split(&['-', '_'][..]).next()?.to_ascii_lowercase();
+    if matches!(base.as_str(), "ja" | "ko") {
+        return None;
+    }
+    let has_han = text.chars().any(is_han);
+    let has_kana = text.chars().any(is_kana);
+    (has_han && !has_kana).then_some(ChineseVariety::Mandarin)
+}
+
+fn is_han(c: char) -> bool {
+    matches!(c,
+        '\u{3400}'..='\u{4DBF}'
+        | '\u{4E00}'..='\u{9FFF}'
+        | '\u{F900}'..='\u{FAFF}'
+        | '\u{20000}'..='\u{3134F}')
+}
+
+fn is_kana(c: char) -> bool {
+    matches!(c, '\u{3040}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}' | '\u{FF66}'..='\u{FF9F}')
+}
+
 /// The script a locale writes Chinese in, or `None` for non-Chinese locales.
 ///
 /// `zh` is Simplified unless tagged Hant or regioned to Taiwan, Hong Kong or
@@ -128,6 +162,36 @@ mod tests {
         assert_eq!(
             convert_chinese_script("裏面", ChineseVariety::Cantonese, ChineseScript::Simplified),
             "里面"
+        );
+    }
+
+    #[test]
+    fn mixed_chinese_detected_as_english_is_converted() {
+        // #2239: Whisper reports `en` for mixed Mandarin/English speech.
+        let text = "我跟你说，Oh my god, I forgot to charge my laptop.";
+        let variety = variety_for_output(Some("en"), text);
+        assert_eq!(variety, Some(ChineseVariety::Mandarin));
+        assert_eq!(
+            convert_chinese_script(text, variety.unwrap(), ChineseScript::TraditionalTw),
+            "我跟你說，Oh my god, I forgot to charge my laptop."
+        );
+    }
+
+    #[test]
+    fn variety_for_output_leaves_other_text_alone() {
+        assert_eq!(variety_for_output(Some("en"), "Hello there."), None);
+        assert_eq!(variety_for_output(None, "我跟你说"), None);
+        // Japanese: kanji must never be rewritten.
+        assert_eq!(variety_for_output(Some("ja"), "会议"), None);
+        assert_eq!(variety_for_output(Some("en"), "会議に行きます"), None);
+        assert_eq!(variety_for_output(Some("ko"), "漢字"), None);
+        assert_eq!(
+            variety_for_output(Some("yue"), "hello"),
+            Some(ChineseVariety::Cantonese)
+        );
+        assert_eq!(
+            variety_for_output(Some("zh-TW"), "hello"),
+            Some(ChineseVariety::Mandarin)
         );
     }
 }
