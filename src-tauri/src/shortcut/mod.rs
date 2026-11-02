@@ -1469,8 +1469,12 @@ pub fn change_show_tray_icon_setting(app: AppHandle, enabled: bool) -> Result<()
     settings.show_tray_icon = enabled;
     settings::write_settings(&app, settings);
 
-    // Apply change immediately
-    tray::set_tray_visibility(&app, enabled);
+    // Apply change immediately, unless `--no-tray` keeps the icon hidden for
+    // this run (the CLI flag is a runtime override of the setting).
+    let no_tray = app
+        .try_state::<crate::cli::CliArgs>()
+        .is_some_and(|args| args.no_tray);
+    tray::set_tray_visibility(&app, enabled && !no_tray);
 
     Ok(())
 }
