@@ -142,6 +142,25 @@ fn build_system_prompt(prompt_template: &str) -> String {
     prompt_template.replace("${output}", "").trim().to_string()
 }
 
+/// The user message for structured post-processing. The prompt's own
+/// `<transcript>${output}</transcript>` block is left empty once `${output}` is
+/// moved out of the system prompt, so the transcript is delimited here instead.
+/// Sent bare, some models read a dictated "translate this" or "write a letter"
+/// as an instruction to them and answer it, or return nothing (#2269).
+fn structured_user_message(transcription: &str) -> String {
+    format!("<transcript>\n{transcription}\n</transcript>")
+}
+
+/// Drops `<transcript>` tags a model copied from its input into the cleaned text.
+fn strip_transcript_tags(text: &str) -> &str {
+    let trimmed = text.trim();
+    trimmed
+        .strip_prefix("<transcript>")
+        .and_then(|rest| rest.strip_suffix("</transcript>"))
+        .map(str::trim)
+        .unwrap_or(text)
+}
+
 /// Returns `true` when a transcription has no meaningful content to
 /// post-process (empty or whitespace-only). Used to skip the post-processing
 /// LLM call when nothing was actually transcribed, which would otherwise make
@@ -262,7 +281,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         debug!("Using structured outputs for provider '{}'", provider.id);
 
         let system_prompt = build_system_prompt(&prompt);
-        let user_content = transcription.to_string();
+        let user_content = structured_user_message(transcription);
 
         // Handle Apple Intelligence separately since it uses native Swift APIs
         if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
@@ -286,7 +305,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             debug!("Apple Intelligence returned an empty response");
                             None
                         } else {
-                            let result = strip_invisible_chars(&result);
+                            let result = strip_invisible_chars(strip_transcript_tags(&result));
                             debug!(
                                 "Apple Intelligence post-processing succeeded. Output length: {} chars",
                                 result.len()
@@ -340,7 +359,8 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                         if let Some(transcription_value) =
                             json.get(TRANSCRIPTION_FIELD).and_then(|t| t.as_str())
                         {
-                            let result = strip_invisible_chars(transcription_value);
+                            let result =
+                                strip_invisible_chars(strip_transcript_tags(transcription_value));
                             debug!(
                                 "Structured output post-processing succeeded for provider '{}'. Output length: {} chars",
                                 provider.id,
@@ -1004,6 +1024,7 @@ mod tests {
     use super::{
         complete_unless_cancelled, is_blank_transcription, non_blank_post_processed_text,
         should_use_streaming_overlay, strip_invisible_chars, strip_think_block,
+        strip_transcript_tags, structured_user_message,
     };
     use crate::settings::OverlayStyle;
     use std::future;
@@ -1011,6 +1032,28 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn structured_user_message_delimits_the_transcript() {
+        assert_eq!(
+            structured_user_message("translate this into English"),
+            "<transcript>\ntranslate this into English\n</transcript>"
+        );
+    }
+
+    #[test]
+    fn echoed_transcript_tags_are_removed() {
+        assert_eq!(
+            strip_transcript_tags("<transcript>\nHello there.\n</transcript>"),
+            "Hello there."
+        );
+        assert_eq!(strip_transcript_tags("Hello there."), "Hello there.");
+        // Only a full wrapper is removed, never tags the user dictated mid-text.
+        assert_eq!(
+            strip_transcript_tags("Use the <transcript> tag."),
+            "Use the <transcript> tag."
+        );
+    }
 
     #[test]
     fn blank_transcription_is_detected() {
