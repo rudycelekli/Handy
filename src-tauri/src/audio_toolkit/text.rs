@@ -221,9 +221,15 @@ pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -
 
 /// Preserves the case pattern of the original word when applying a replacement
 fn preserve_case_pattern(original: &str, replacement: &str) -> String {
-    if original.chars().all(|c| c.is_uppercase()) {
+    // All caps needs at least two letters: a lone capital ("I phone", "X code",
+    // a sentence-initial "A") is ordinary capitalization, not shouting.
+    let mut letters = original.chars().filter(|c| c.is_alphabetic()).peekable();
+    let first_letter_upper = letters.peek().is_some_and(|c| c.is_uppercase());
+    let (letter_count, all_upper) =
+        letters.fold((0, true), |(n, all), c| (n + 1, all && c.is_uppercase()));
+    if letter_count >= 2 && all_upper {
         replacement.to_uppercase()
-    } else if original.chars().next().is_some_and(|c| c.is_uppercase()) {
+    } else if first_letter_upper {
         let mut chars: Vec<char> = replacement.chars().collect();
         if let Some(first_char) = chars.get_mut(0) {
             *first_char = first_char.to_uppercase().next().unwrap_or(*first_char);
@@ -517,6 +523,17 @@ mod tests {
         assert_eq!(preserve_case_pattern("HELLO", "world"), "WORLD");
         assert_eq!(preserve_case_pattern("Hello", "world"), "World");
         assert_eq!(preserve_case_pattern("hello", "WORLD"), "WORLD");
+        // A single capital letter is not all caps.
+        assert_eq!(preserve_case_pattern("G", "gmail"), "Gmail");
+    }
+
+    #[test]
+    fn test_custom_word_after_single_capital_is_not_uppercased() {
+        let custom_words = vec!["Gmail".to_string()];
+        assert_eq!(
+            apply_custom_words("Check G mail now", &custom_words, 0.18),
+            "Check Gmail now"
+        );
     }
 
     #[test]
